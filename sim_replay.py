@@ -30,6 +30,7 @@ import numpy as np
 import robosuite as suite
 from robosuite.controllers import load_composite_controller_config
 
+from policy import features
 from retarget import robust_smooth, similarity
 
 TABLE_Z = 0.80          # robosuite Lift table top
@@ -80,7 +81,9 @@ def make_env(cam=128, cams=True):
     )
 
 
-def run_episode(env, d, strategy, rng, perturb_cm, frames=None, log=None):
+def run_episode(env, d, strategy, rng, perturb_cm, frames=None, log=None, slog=None, noise=0.0):
+    """slog: list to receive (policy features, clean action); noise: std of executed xyz-action noise
+    (DART-style: the robot executes a perturbed action, the label stays the clean one)."""
     env.reset()
     pick_cm, place_cm = d["pick_cm"], d["place_cm"]
     mapf = twin_map(pick_cm, place_cm)
@@ -109,10 +112,15 @@ def run_episode(env, d, strategy, rng, perturb_cm, frames=None, log=None):
             a = np.zeros(7)
             a[:3] = np.clip(err / STEP * 1.5, -1, 1)
             a[6] = grip
+            if slog is not None:
+                slog.append((features(o, target_xy), a.copy()))
             if log is not None:
                 log.append((o["agentview_image"][::-1].copy(), o["robot0_eye_in_hand_image"][::-1].copy(),
                             np.r_[o["robot0_eef_pos"], o["robot0_eef_quat"], o["robot0_gripper_qpos"]], a.copy()))
-            o, *_ = env.step(a)
+            a_exec = a.copy()
+            if noise > 0:
+                a_exec[:3] = np.clip(a_exec[:3] + rng.normal(0, noise, 3), -1, 1)
+            o, *_ = env.step(a_exec)
             if frames is not None:
                 frames.append(np.ascontiguousarray(env.sim.render(camera_name="frontview", width=320, height=240)[::-1]))
             if np.linalg.norm(err) < tol:
@@ -155,16 +163,20 @@ def main():
     ap.add_argument("--video", default=None)
     ap.add_argument("--save-rollout", default=None, help="dir: save successful (img,state,action) rollouts")
     ap.add_argument("--json", default=None)
+    ap.add_argument("--save-states", default=None, help="dir: save (features, action) of successful episodes for policy training")
+    ap.add_argument("--action-noise", type=float, default=0.0, help="std of executed action noise (data generation)")
+    ap.add_argument("--seed-offset", type=int, default=0)
     args = ap.parse_args()
 
     d = dict(np.load(args.traj))
     env = make_env(cams=bool(args.save_rollout))
     res = []
-    for s in range(args.seeds):
+    for s in range(args.seed_offset, args.seed_offset + args.seeds):
         rng = np.random.default_rng(s)
-        frames = [] if (args.video and s == 0) else None
+        frames = [] if (args.video and s == args.seed_offset) else None
         log = [] if args.save_rollout else None
-        r = run_episode(env, d, args.strategy, rng, args.perturb, frames, log)
+        slog = [] if args.save_states else None
+        r = run_episode(env, d, args.strategy, rng, args.perturb, frames, log, slog, args.action_noise)
         r["seed"] = s
         res.append(r)
         print(json.dumps(r))
@@ -172,6 +184,11 @@ def main():
             import imageio
             os.makedirs(os.path.dirname(args.video) or ".", exist_ok=True)
             imageio.mimsave(args.video, frames, fps=20)
+        if slog and r["success"]:
+            os.makedirs(args.save_states, exist_ok=True)
+            name = os.path.basename(os.path.dirname(args.traj))
+            np.savez_compressed(f"{args.save_states}/{name}_s{s}.npz",
+                                feats=np.stack([x[0] for x in slog]), actions=np.stack([x[1] for x in slog]))
         if log and r["success"]:
             os.makedirs(args.save_rollout, exist_ok=True)
             name = os.path.splitext(os.path.basename(os.path.dirname(args.traj)))[0]
