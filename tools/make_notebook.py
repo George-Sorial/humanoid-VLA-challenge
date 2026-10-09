@@ -18,7 +18,13 @@ with layout perturbations → results + VLA training rollouts.**
 code("""
 !git clone -q https://github.com/George-Sorial/humanoid-VLA-challenge.git 2>/dev/null || (cd humanoid-VLA-challenge && git pull -q)
 %cd humanoid-VLA-challenge
-!pip -q install -r requirements.txt
+# Colab's own Python may be too new for MuJoCo 3.3.x + robosuite 1.5.2 wheels (pip would try to build MuJoCo
+# from source). So the pipeline runs in its own Python 3.12 env, created with uv in ~1 minute.
+!pip -q install uv
+!uv venv -q -p 3.12 /content/venv
+!VIRTUAL_ENV=/content/venv uv pip install -q -r requirements.txt
+PY = "/content/venv/bin/python"
+!{PY} -c "import sys, mujoco, robosuite, cv2; print('python', sys.version.split()[0], '| mujoco', mujoco.__version__, '| robosuite', robosuite.__version__, '| aruco', hasattr(cv2, 'aruco'))"
 """)
 code("""
 # headless rendering backend: EGL on a GPU runtime, OSMesa (software) on CPU
@@ -45,15 +51,16 @@ if UPLOAD:
 """)
 md("### 1. Smoke test (one clip, unperturbed, ~2 min)")
 code("""
-!python run_pipeline.py --quick --clips L2R_1 --workers 1
+!{PY} run_pipeline.py --quick --clips L2R_1 --workers 2 --no-rollouts
 """)
 md("""
 ### 2. Full experiment
-All clips × {naive, anchored} × layout shift {0, 3, 6} cm (3 random layouts per shift).
-≈ 126 episodes → ~60 min on 2 CPUs. Use `--seeds 1` or `--perturb 0 6` to go faster.
+All clips × {naive, anchored} × layout shift {0, 3, 6} cm, one random layout per shift.
+With 20 clips that is 120 episodes (~25 min on 2 CPUs). `--no-rollouts` skips saving VLA training data
+(much faster); drop it, and raise `--seeds`, for a bigger run.
 """)
 code("""
-!python run_pipeline.py --workers {os.cpu_count()}
+!{PY} run_pipeline.py --perturb 0 3 6 --seeds 1 --no-rollouts --workers {os.cpu_count()}
 """)
 md("### 3. Results")
 code("""
@@ -69,8 +76,10 @@ for g in sorted(glob.glob("out/sim/gifs/*_compare.gif"))[:3]:
 """)
 md("### 4. VLA training data (successful anchored rollouts)")
 code("""
+# only if you ran without --no-rollouts
 import numpy as np, glob
 fs = sorted(glob.glob("rollouts/*.npz"))
+assert fs, "no rollouts: re-run run_pipeline.py without --no-rollouts"
 print(len(fs), "episodes")
 d = np.load(fs[0])
 print({k: d[k].shape for k in ["agentview", "wrist", "state", "action"]}, "| task:", str(d["task"]))

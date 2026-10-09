@@ -32,7 +32,7 @@ for s in S:
         pe = np.median([r["place_err_cm"] for r in rr if r["lifted"]] or [np.nan])
         agg[(s, p)] = (k / len(rr), k, len(rr))
         L.append(f"| {s} | {p} cm | **{k}/{len(rr)}** ({k/len(rr):.0%}) | "
-                 f"{np.mean([r['lifted'] for r in rr]):.0%} | {pe:.1f} cm | {len(rr)} |")
+                 f"{np.mean([r['lifted'] for r in rr]):.0%} | {"–" if np.isnan(pe) else f"{pe:.1f} cm"} | {len(rr)} |")
 for s in S:
     rr = [r for r in rows if r["strategy"] == s]
     L.append(f"| **{s} (all)** | | **{sum(r['success'] for r in rr)}/{len(rr)}** | | | |")
