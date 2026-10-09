@@ -1,5 +1,10 @@
 rollouts/
+states/
 __pycache__/
 *.pyc
 pipeline.log
 out/sim/logs/
+out/sim/gifs/
+out/policy/gen/
+out/policy/gen_jobs.txt
+out/policy/gen_done.flag

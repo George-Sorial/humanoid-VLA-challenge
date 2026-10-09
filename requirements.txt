@@ -6,3 +6,5 @@ imageio-ffmpeg
 opencv-python>=4.8   # includes cv2.aruco
 mujoco==3.3.2        # robosuite 1.5.2 breaks on newer MuJoCo (joint-type assertion)
 robosuite==1.5.2
+scikit-learn        # behaviour-cloning policy (train_policy.py)
+joblib
